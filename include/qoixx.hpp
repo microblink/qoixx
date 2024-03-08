@@ -1045,6 +1045,8 @@ class qoi{
     push<sizeof(padding)>(p, padding);
   }
 
+
+public:
   template<typename Puller>
   static inline desc decode_header(Puller& p){
     desc d;
@@ -1061,6 +1063,7 @@ class qoi{
       throw std::runtime_error("qoixx::qoi::decode: invalid header");
     return d;
   }
+private:
 
 #ifndef QOIXX_DECODE_WITH_TABLES
 #define QOIXX_HPP_DECODE_WITH_TABLES_NOT_DEFINED
