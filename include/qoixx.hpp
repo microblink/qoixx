@@ -4,10 +4,10 @@
 #include<cstdint>
 #include<cstddef>
 #include<cstring>
+#include<expected>
 #include<vector>
 #include<type_traits>
 #include<memory>
-#include<stdexcept>
 #include<bit>
 #include<numeric>
 #include<array>
@@ -279,7 +279,7 @@ class qoi{
       return ((this->r^rhs.r)|(this->g^rhs.g)|(this->b^rhs.b)) == 0;
     }
   };
-  static constexpr std::uint32_t magic = 
+  static constexpr std::uint32_t magic =
     113u /*q*/ << 24 | 111u /*o*/ << 16 | 105u /*i*/ <<  8 | 102u /*f*/ ;
   static constexpr std::size_t header_size =
     sizeof(magic) +
@@ -1050,8 +1050,13 @@ class qoi{
 
 
 public:
+  enum struct Error : std::uint8_t
+  {
+    OperationFailure
+  };
+
   template<typename Puller>
-  static inline desc decode_header(Puller& p){
+  static inline std::expected< desc, Error > decode_header(Puller& p){
     desc d;
     const auto magic_ = read_32(p);
     d.width = read_32(p);
@@ -1063,7 +1068,9 @@ public:
       d.channels < 3 || d.channels > 4 ||
       d.height >= pixels_max / d.width
     )[[unlikely]]
-      throw std::runtime_error("qoixx::qoi::decode: invalid header");
+    {
+      return std::unexpected{ Error::OperationFailure };
+    }
     return d;
   }
 private:
@@ -1128,7 +1135,7 @@ private:
 #endif
 
   template<std::size_t Channels, typename Pusher, typename Puller>
-  static inline void decode_impl(Pusher& pixels, Puller& p, std::size_t px_len, std::size_t size){
+  static inline std::expected< bool, Error > decode_impl(Pusher& pixels, Puller& p, std::size_t px_len, std::size_t size){
 #ifndef __aarch64__
     using rgba_t = std::conditional_t<Channels == 4, qoi::rgba_t, qoi::rgb_t>;
 #endif
@@ -1285,16 +1292,17 @@ private:
     while(px_len--)[[likely]]{
       f();
       if(size < sizeof(padding))[[unlikely]]{
-        throw std::runtime_error("qoixx::qoi::decode: insufficient input data");
+        return std::unexpected{ Error::OperationFailure };
       }
     }
+    return true;
   }
  public:
   template<typename T, typename U>
-  static inline T encode(const U& u, const desc& desc){
+  static inline std::expected< T, Error > encode(const U& u, const desc& desc){
     using coU = container_operator<U>;
     if(!coU::valid(u) || coU::size(u) < desc.width*desc.height*desc.channels || desc.width == 0 || desc.height == 0 || desc.channels < 3 || desc.channels > 4 || desc.height >= pixels_max / desc.width)[[unlikely]]
-      throw std::invalid_argument{"qoixx::qoi::encode: invalid argument"};
+      return std::unexpected{ Error::OperationFailure };
 
     const auto max_size = static_cast<std::size_t>(desc.width) * desc.height * (desc.channels + 1) + header_size + sizeof(padding);
     using coT = container_operator<T>;
@@ -1366,19 +1374,25 @@ private:
   }
   template<typename T, typename U>
   requires(sizeof(U) == 1)
-  static inline T encode(const U* pixels, std::size_t size, const desc& desc){
+  static inline std::expected< T, Error > encode(const U* pixels, std::size_t size, const desc& desc){
     return encode<T>(std::make_pair(pixels, size), desc);
   }
+
   template<typename T, typename U>
   requires (!std::is_pointer_v<U>)
-  static inline std::pair<T, desc> decode(const U& u, std::uint8_t channels = 0){
+  static inline std::expected< std::pair<T, desc>, Error > decode(const U& u, std::uint8_t channels = 0){
     using coU = container_operator<U>;
     const auto size = coU::size(u);
     if(!coU::valid(u) || size < header_size + sizeof(padding) || (channels != 0 && channels != 3 && channels != 4))[[unlikely]]
-      throw std::invalid_argument{"qoixx::qoi::decode: invalid argument"};
+      return std::unexpected{ Error::OperationFailure };
     auto puller = coU::create_puller(u);
 
-    const auto d = decode_header(puller);
+    const auto maybed = decode_header(puller);
+    if ( !maybed )
+      return std::unexpected{ Error::OperationFailure };
+
+    auto d = maybed.value();
+
     if(channels == 0)
       channels = d.channels;
 
@@ -1387,16 +1401,23 @@ private:
     T data = coT::construct(px_len*channels);
     auto p = coT::create_pusher(data);
 
-    if(channels == 4)
-      decode_impl<4>(p, puller, px_len, size);
-    else
-      decode_impl<3>(p, puller, px_len, size);
+    auto result = [ & ]()
+    {
+      if(channels == 4)
+        return decode_impl<4>(p, puller, px_len, size);
+      else
+        return decode_impl<3>(p, puller, px_len, size);
+    }();
+    if ( !result )
+    {
+      return std::unexpected{ Error::OperationFailure };
+    }
 
     return std::make_pair(std::move(p.finalize()), d);
   }
   template<typename T, typename U>
   requires(sizeof(U) == 1)
-  static inline std::pair<T, desc> decode(const U* pixels, std::size_t size, std::uint8_t channels = 0){
+  static inline std::expected< std::pair<T, desc>, Error > decode(const U* pixels, std::size_t size, std::uint8_t channels = 0){
     return decode<T>(std::make_pair(pixels, size), channels);
   }
 };
