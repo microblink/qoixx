@@ -17,7 +17,7 @@
 #if defined(__ARM_FEATURE_SVE)
 #include<arm_sve.h>
 #include<arm_neon.h>
-#elif defined(__ARM_NEON)
+#elif defined(__aarch64__)
 #include<arm_neon.h>
 #elif defined(__AVX2__)
 #include<immintrin.h>
@@ -589,7 +589,7 @@ class qoi{
 
     push<sizeof(padding)>(p_, padding);
   }
-#elif defined(__ARM_NEON)
+#elif defined(__aarch64__)
   template<bool Alpha>
   using pixels_type = std::conditional_t<Alpha, uint8x16x4_t, uint8x16x3_t>;
   template<bool Alpha>
@@ -1168,7 +1168,7 @@ private:
       const auto b1 = p.pull();
       --size;
 
-#if defined(__ARM_NEON) and not defined(QOIXX_NO_SIMD)
+#if defined(__aarch64__) and not defined(QOIXX_NO_SIMD)
 #define QOIXX_HPP_DECODE_RUN(px, run) { \
     if constexpr(Pusher::is_contiguous){ \
       ++run; \
@@ -1349,7 +1349,7 @@ private:
 #undef QOIXX_HPP_SVE_REGISTER_SIZE_SWITCH_CASE
 #undef QOIXX_HPP_SVE_REGISTER_SIZE_SWITCH
     else
-#elif defined(__ARM_NEON)
+#elif defined(__aarch64__)
     if constexpr(coT::pusher::is_contiguous && coU::puller::is_contiguous)
       if(desc.channels == 4)
         encode_neon<4>(p, puller, desc);
